@@ -121,7 +121,7 @@ class SumLoss(WeightedLoss):
     }
 
     def __init__(self, losses, ignore_weight_zero=True, grad_stats=None, loss_weights=None, loss_names=None,
-                 split_pred='auto', split_target='auto',
+                 split_pred='auto', split_target='auto', enable_pred_list=False,
                  **super_kwargs):
         assert isinstance(losses, collections.Iterable)
         if ignore_weight_zero and isinstance(loss_weights, (list, tuple)):
@@ -137,6 +137,7 @@ class SumLoss(WeightedLoss):
         if self.grad_stats is not None:
             assert self.trainer is not None
         self.split_pred = split_pred
+        self.enable_pred_list = enable_pred_list
         self.split_target = split_target
         self.hook_handle = None
 
@@ -179,7 +180,7 @@ class SumLoss(WeightedLoss):
             # apply the list of losses to the list of predictions
             assert len(preds) == len(self.losses)
             pred_per_loss = preds
-        elif self.grad_stats is None or not self.trainer.model.training:
+        elif self.grad_stats is None or not self.trainer.model.training or self.enable_pred_list:
             pred_per_loss = [preds] * len(self.losses)
         else:
             pred_per_loss = preds[None].repeat(self.n_losses, *((1,) * len(preds.shape)))

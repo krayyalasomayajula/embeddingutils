@@ -16,10 +16,10 @@ def ignore_label_mask_similarity(x, y, dim=0, ignore_label=0):
 
 def label_equal_similarity_with_mask(x, y, dim=0, ignore_label=-1):
     assert x.shape[dim] == 1, 'label images should have one channel only'
-    aff = ((x == y).squeeze(dim=dim))
+    aff = (x == y)
     ignore_mask = (x == ignore_label).add_(y == ignore_label).ge_(1)
     aff[ignore_mask] = ignore_label
-    return aff
+    return aff.squeeze(dim=dim)
 
 def label_equal_similarity_with_mask_le(x, y, dim=0, ignore_label_le=-1):
     # this should be a faster implementation in case where all labels smaller 

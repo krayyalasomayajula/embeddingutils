@@ -318,6 +318,81 @@ class IsotropicSuperhumanSNEMINet(SuperhumanSNEMINet):
                                     pre_kernel_size=(3, 3, 3), inner_kernel_size=(3, 3, 3))
 
 
+class GlobalIsotropicSuperhumanSNEMINet(IsotropicSuperhumanSNEMINet):
+
+    def __init__(self,
+                 in_channels=1, out_channels=1,
+                 fmaps=(28, 36, 48, 64, 80),
+                 conv_type=ConvELU3D,
+                 scale_factor=(
+                     (1, 2, 2),
+                     (1, 2, 2),
+                     (1, 2, 2),
+                     (1, 2, 2)
+                 ),
+                 depth=None,
+                 n_classes=2,
+                 epsilon=0.4,
+                 **kwargs):
+        if depth is None:
+            depth = len(fmaps) - 1
+        super(GlobalIsotropicSuperhumanSNEMINet, self).__init__(
+            conv_type=conv_type,
+            depth=depth,
+            fmaps=fmaps,
+            in_channels=in_channels,
+            out_channels=out_channels,
+            scale_factor=scale_factor,
+            **kwargs
+        )
+        self.s_matrix = Variable(torch.zeros(n_classes, out_channels)).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(0).cuda()
+        self.epsilon = epsilon
+
+
+    def forward(self, input_):
+        pdb.set_trace()
+        input, one_hot_mask = input_[:,:1,...], input_[:,1:,...]
+        input_dim = len(input.shape)
+        assert all(input.shape[-i] % self.divisibility_constraint[-i] == 0 for i in range(1, input_dim-1)), \
+            f'Input shape {input.shape[2:]} not suited for downsampling with factors {self.scale_factors}.' \
+            f'Lengths of spatial axes must be multiples of {self.divisibility_constraint}.'
+        output = super(UNet3D, self).forward(input)
+
+        if self.update_embeddings:
+            # ------------ Create mean embeddings
+            # pdb.set_trace()
+            embedding_dims = output.size()[1]
+            target = one_hot_mask.unsqueeze(2)
+            # save target's copy in order to compute the average embeddings later
+            target_copy = target.clone()
+            shape = list(target.size())
+            shape[2] = embedding_dims
+            target = target.expand(shape)
+
+            # expand input: NxExDxHxW -> Nx1xExDxHxW
+            input = output.unsqueeze(1)
+
+            # pdb.set_trace()
+            # sum embeddings in each instance (multiply first via broadcasting) output: NxCxEx1x1x1
+            embeddings_per_instance = input * target
+            num = torch.sum(embeddings_per_instance, dim=(3, 4, 5), keepdim=True)
+            # get number of voxels in each cluster output: NxCx1x1x1x1
+            num_voxels_per_instance = torch.sum(target_copy, dim=(3, 4, 5), keepdim=True) + 1e-8
+            # compute mean embeddings NxCxEx1x1x1
+            mean_embeddings = num / num_voxels_per_instance
+            mean_embed = torch.mean(mean_embeddings, dim=0).squeeze(-1).squeeze(-1).squeeze(-1)
+            self.s_matrix = self.s_matrix.squeeze(-1).squeeze(-1).squeeze(-1).squeeze(0)
+            weight = (torch.sum(torch.abs(mean_embed), dim=1) > 0).float().unsqueeze(-1)
+            self.s_matrix = (1 - self.epsilon) * self.s_matrix + self.epsilon * (mean_embed * weight)
+            # print(torch.sum(torch.abs(self.s_matrix)))
+            print(colored(f'total norm {torch.sum(torch.abs(self.s_matrix)).detach()}', 'blue', attrs=['bold']))
+            self.s_matrix = self.s_matrix.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).unsqueeze(0)
+            # pdb.set_trace()
+
+        return embeddings_per_instance, self.s_matrix
+
+
+
 class UNet2D(UNet3D):
 
     def __init__(self,
